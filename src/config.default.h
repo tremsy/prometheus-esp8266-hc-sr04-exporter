@@ -4,16 +4,10 @@
 #define DEBUG_MODE 0
 // Board name
 #define BOARD_NAME "ESP8266"
-// DHT sensor name (should be the same)
-#define DHT_NAME "DHT11"
-// DHT sensor type
-#define DHT_TYPE DHT11
-// DHT pin
-#define DHT_PIN 14
-// Temperature offset in degrees Celsius
-#define TEMPERATURE_CORRECTION_OFFSET 0
-// Humidity offset in percent
-#define HUMIDITY_CORRECTION_OFFSET 0
+// Temperature sensor name
+#define TEMPERATURE_SENSOR_NAME "DS18B20"
+// GPIO where the DS18B20 is connected
+#define GPIO_PIN 4
 // How long to cache the sensor results, in milliseconds
 #define READ_INTERVAL 5000
 // How many times to try to read the sensor before returning an error

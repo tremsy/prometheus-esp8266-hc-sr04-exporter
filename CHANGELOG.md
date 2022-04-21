@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.3.0] - 2022-04-19
+
+### Added
+
+- Added support for DS18B20 temperature sensor
+
+### Removed
+
+- Removed support for DHT11 sensor
+
 ## [1.2.0] - 2021-08-28
 
 ### Added

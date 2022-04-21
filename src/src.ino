@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <DHTesp.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 #include "config.h"
 #include "version.h"
@@ -11,41 +12,34 @@ enum LogLevel {
     DEBUG,
     INFO,
     ERROR,
-};
+};   
 
-void setup_dht_sensor();
 void setup_wifi();
 void setup_http_server();
 void handle_http_home_client();
 void handle_http_metrics_client();
 void read_sensors(boolean force=false);
-bool read_sensor(float (*function)(), float *value);
 void log(char const *message, LogLevel level=LogLevel::INFO);
 
-DHTesp dht_sensor;
 ESP8266WebServer http_server(HTTP_SERVER_PORT);
 
-float humidity, temperature, heat_index;
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(GPIO_PIN);
+
+// Pass our oneWire reference to Dallas Temperature sensor 
+DallasTemperature sensors(&oneWire);
+
+float temperature;
 uint32_t previous_read_time = 0;
 
 void setup(void) {
     char message[128];
-    Serial.begin(9600);
-    setup_dht_sensor();
+    Serial.begin(115200);
     setup_wifi();
     setup_http_server();
     snprintf(message, 128, "Prometheus namespace: %s", PROM_NAMESPACE);
     log(message);
     log("Setup done");
-}
-
-void setup_dht_sensor() {
-    log("Setting up DHT sensor");
-    dht_sensor.setup(DHT_PIN, DHTesp::DHT_TYPE);
-    delay(dht_sensor.getMinimumSamplingPeriod());
-    // Test read
-    read_sensors(true);
-    log("DHT sensor ready", LogLevel::DEBUG);
 }
 
 void setup_wifi() {
@@ -141,31 +135,23 @@ void handle_http_metrics() {
     log_request();
     static size_t const BUFSIZE = 1024;
     static char const *response_template =
-        "# HELP " PROM_NAMESPACE "_info Metadata about the device.\n"
+        "# HELP " PROM_NAMESPACE "_info Metadata about the device\n"
         "# TYPE " PROM_NAMESPACE "_info gauge\n"
         "# UNIT " PROM_NAMESPACE "_info \n"
         PROM_NAMESPACE "_info{version=\"%s\",board=\"%s\",sensor=\"%s\"} 1\n"
-        "# HELP " PROM_NAMESPACE "_air_humidity_percent Air humidity.\n"
-        "# TYPE " PROM_NAMESPACE "_air_humidity_percent gauge\n"
-        "# UNIT " PROM_NAMESPACE "_air_humidity_percent %%\n"
-        PROM_NAMESPACE "_air_humidity_percent %f\n"
-        "# HELP " PROM_NAMESPACE "_air_temperature_celsius Air temperature.\n"
-        "# TYPE " PROM_NAMESPACE "_air_temperature_celsius gauge\n"
-        "# UNIT " PROM_NAMESPACE "_air_temperature_celsius \u00B0C\n"
-        PROM_NAMESPACE "_air_temperature_celsius %f\n"
-        "# HELP " PROM_NAMESPACE "_air_heat_index_celsius Apparent air temperature, based on temperature and humidity.\n"
-        "# TYPE " PROM_NAMESPACE "_air_heat_index_celsius gauge\n"
-        "# UNIT " PROM_NAMESPACE "_air_heat_index_celsius \u00B0C\n"
-        PROM_NAMESPACE "_air_heat_index_celsius %f\n";
+        "# HELP " PROM_NAMESPACE "_temperature_fahrenheit Current temperature in Fahrenheit\n"
+        "# TYPE " PROM_NAMESPACE "_temperature_fahrenheit gauge\n"
+        "# UNIT " PROM_NAMESPACE "_temperature_fahrenheit \u00B0F\n"
+        PROM_NAMESPACE "_temperature_fahrenheit %f\n";
 
-    read_sensors();
-    if (isnan(humidity) || isnan(temperature) || isnan(heat_index)) {
+    read_sensors();        
+    if (isnan(temperature)) {    
         http_server.send(500, "text/plain; charset=utf-8", "Sensor error.");
         return;
     }
 
-    char response[BUFSIZE];
-    snprintf(response, BUFSIZE, response_template, VERSION, BOARD_NAME, DHT_NAME, humidity, temperature, heat_index);
+    char response[BUFSIZE];    
+    snprintf(response, BUFSIZE, response_template, VERSION, BOARD_NAME, TEMPERATURE_SENSOR_NAME, temperature);
     http_server.send(200, "text/plain; charset=utf-8", response);
 }
 
@@ -175,62 +161,20 @@ void handle_http_not_found() {
 }
 
 void read_sensors(boolean force) {
-    uint32_t min_interval = max(dht_sensor.getMinimumSamplingPeriod(), READ_INTERVAL);
     uint32_t current_time = millis();
-    if (!force && current_time - previous_read_time < min_interval) {
+    if (!force && current_time - previous_read_time < READ_INTERVAL) {
         log("Sensors were recently read, will not read again yet.", LogLevel::DEBUG);
         return;
     }
     previous_read_time = current_time;
 
-    read_humidity_sensor();
     read_temperature_sensor();
-    read_heat_index();
-}
-
-void read_humidity_sensor() {
-    log("Reading humidity sensor ...", LogLevel::DEBUG);
-    bool result = read_sensor([] {
-          return dht_sensor.getHumidity();
-      }, &humidity);
-    if (result) {
-        humidity += HUMIDITY_CORRECTION_OFFSET;
-    } else {
-        log("Failed to read humidity sensor.", LogLevel::ERROR);
-    }
 }
 
 void read_temperature_sensor() {
     log("Reading temperature sensor ...", LogLevel::DEBUG);
-    bool result = read_sensor([] {
-        return dht_sensor.getTemperature();
-    }, &temperature);
-    if (result) {
-        temperature += TEMPERATURE_CORRECTION_OFFSET;
-    } else {
-        log("Failed to read temperature sensor.", LogLevel::ERROR);
-    }
-}
-
-void read_heat_index() {
-    if (!isnan(humidity) && !isnan(temperature)) {
-        heat_index = dht_sensor.computeHeatIndex(temperature, humidity, false);
-    } else {
-        heat_index = NAN;
-    }
-}
-
-bool read_sensor(float (*function)(), float *value) {
-    bool success = false;
-    for (int i = 0; i < READ_TRY_COUNT; i++) {
-        *value = function();
-        if (!isnan(*value)) {
-            success = true;
-            break;
-        }
-        log("Failed to read sensor.", LogLevel::DEBUG);
-    }
-    return success;
+    sensors.requestTemperatures();
+    temperature = sensors.getTempFByIndex(0);
 }
 
 void log_request() {
