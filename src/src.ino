@@ -1,12 +1,24 @@
+/*********
+  Rui Santos
+  Complete project details at https://RandomNerdTutorials.com/esp8266-nodemcu-hc-sr04-ultrasonic-arduino/
+  
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files.
+  
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+*********/
+
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
 
 #include "config.h"
 #include "version.h"
 
 #define EXPLODE4(arr) (arr[0], arr[1], arr[2], arr[3])
+
+//define sound velocity in in/μs
+#define SOUND_VELOCITY 0.0135039
 
 enum LogLevel {
     DEBUG,
@@ -14,6 +26,7 @@ enum LogLevel {
     ERROR,
 };   
 
+void setup_hcsr04_sensor();
 void setup_wifi();
 void setup_http_server();
 void handle_http_home_client();
@@ -23,23 +36,24 @@ void log(char const *message, LogLevel level=LogLevel::INFO);
 
 ESP8266WebServer http_server(HTTP_SERVER_PORT);
 
-// Setup a oneWire instance to communicate with any OneWire devices
-OneWire oneWire(GPIO_PIN);
-
-// Pass our oneWire reference to Dallas Temperature sensor 
-DallasTemperature sensors(&oneWire);
-
-float temperature;
+long duration;
+float distance;
 uint32_t previous_read_time = 0;
 
 void setup(void) {
     char message[128];
     Serial.begin(115200);
+    setup_hcsr04_sensor();
     setup_wifi();
     setup_http_server();
     snprintf(message, 128, "Prometheus namespace: %s", PROM_NAMESPACE);
     log(message);
     log("Setup done");
+}
+
+void setup_hcsr04_sensor() {
+    pinMode(TRIGGER_PIN, OUTPUT); // Sets the TRIGGER_PIN as an Output
+    pinMode(ECHO_PIN, INPUT); // Sets the ECHO_PIN as an Input
 }
 
 void setup_wifi() {
@@ -139,19 +153,19 @@ void handle_http_metrics() {
         "# TYPE " PROM_NAMESPACE "_info gauge\n"
         "# UNIT " PROM_NAMESPACE "_info \n"
         PROM_NAMESPACE "_info{version=\"%s\",board=\"%s\",sensor=\"%s\"} 1\n"
-        "# HELP " PROM_NAMESPACE "_temperature_fahrenheit Current temperature in Fahrenheit\n"
-        "# TYPE " PROM_NAMESPACE "_temperature_fahrenheit gauge\n"
-        "# UNIT " PROM_NAMESPACE "_temperature_fahrenheit \u00B0F\n"
-        PROM_NAMESPACE "_temperature_fahrenheit %f\n";
+        "# HELP " PROM_NAMESPACE "_distance_inches Current distance in inches\n"
+        "# TYPE " PROM_NAMESPACE "_distance_inches gauge\n"
+        "# UNIT " PROM_NAMESPACE "_distance_inches \u00B0F\n"
+        PROM_NAMESPACE "_distance_inches %f\n";
 
     read_sensors();        
-    if (isnan(temperature)) {    
+    if (isnan(distance)) {    
         http_server.send(500, "text/plain; charset=utf-8", "Sensor error.");
         return;
     }
 
     char response[BUFSIZE];    
-    snprintf(response, BUFSIZE, response_template, VERSION, BOARD_NAME, TEMPERATURE_SENSOR_NAME, temperature);
+    snprintf(response, BUFSIZE, response_template, VERSION, BOARD_NAME, DISTANCE_SENSOR_NAME, distance);
     http_server.send(200, "text/plain; charset=utf-8", response);
 }
 
@@ -168,13 +182,25 @@ void read_sensors(boolean force) {
     }
     previous_read_time = current_time;
 
-    read_temperature_sensor();
+    read_distance_sensor();
 }
 
-void read_temperature_sensor() {
-    log("Reading temperature sensor ...", LogLevel::DEBUG);
-    sensors.requestTemperatures();
-    temperature = sensors.getTempFByIndex(0);
+void read_distance_sensor() {
+    log("Reading distance sensor ...", LogLevel::DEBUG);
+
+    // Clears the TRIGGER_PIN
+    digitalWrite(TRIGGER_PIN, LOW);
+    delayMicroseconds(2);
+    // Sets the TRIGGER_PIN on HIGH state for 10 micro seconds
+    digitalWrite(TRIGGER_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIGGER_PIN, LOW);
+
+    // Reads the ECHO_PIN, returns the sound wave travel time in microseconds
+    duration = pulseIn(ECHO_PIN, HIGH);
+
+    // Calculates the distance
+    distance = duration * SOUND_VELOCITY / 2;
 }
 
 void log_request() {
