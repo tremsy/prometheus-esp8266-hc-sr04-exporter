@@ -1,4 +1,4 @@
-# Prometheus ESP8266 DS18B20 Exporter
+# Prometheus ESP8266 HC-SR04 Exporter
 
 [![GitHub release](https://img.shields.io/github/v/release/HON95/prometheus-esp8266-dht-exporter?label=Version)](https://github.com/HON95/prometheus-esp8266-dht-exporter/releases)
 
